@@ -72,6 +72,28 @@ where email = 'superadmin@lembagaanda.id';
 
 ## LANGKAH 4 — Deploy Edge Functions
 
+### Jalur A — Via Dashboard (tanpa CLI, cocok untuk memulai cepat)
+
+1. Dashboard → **Edge Functions → Deploy a new function → Via Editor → Open Editor**.
+2. Buat fungsi baru bernama **`payment-webhook`**, tempel seluruh isi
+   `supabase/functions/payment-webhook/index.ts` → **Deploy**.
+3. Ulangi untuk **`whatsapp-send`** (isi `supabase/functions/whatsapp-send/index.ts`).
+4. **Matikan verifikasi JWT khusus untuk `payment-webhook`** (dipanggil Midtrans/Xendit
+   tanpa JWT Supabase): Edge Functions → pilih `payment-webhook` → **Details/Verify JWT
+   with legacy secret → OFF**. Fungsi `whatsapp-send` dibiarkan **ON** (dipanggil admin
+   ber-JWT).
+5. Sidebar **Edge Functions → Secrets → Add new secret**:
+   - `MIDTRANS_SERVER_KEY` = server key Midtrans (atau `XENDIT_CALLBACK_TOKEN` bila pakai Xendit)
+   - `WA_PROVIDER` = `fonnte` | `wablas` | `twilio` | `meta`
+   - `WA_TOKEN` = token provider WhatsApp yang dipilih
+     (Wablas: `WA_WABLAS_DOMAIN`; Twilio: `TWILIO_ACCOUNT_SID` + `TWILIO_WHATSAPP_FROM`; Meta: `META_PHONE_NUMBER_ID`)
+   - Opsional email kuitansi: `RESEND_API_KEY`, `EMAIL_FROM`
+   - `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` **otomatis tersedia** (built-in) — jangan dibuat manual.
+6. Catat URL fungsi: `https://<project-ref>.supabase.co/functions/v1/payment-webhook`
+   (untuk Xendit tambahkan `?provider=xendit`).
+
+### Jalur B — Via CLI
+
 Butuh Supabase CLI (`npm i -g supabase` atau `npx supabase`). Login: `supabase login`, lalu link: `supabase link --project-ref xxxxx`.
 
 ```bash
@@ -143,11 +165,27 @@ Sebelum mengisi kredensial (masih mode demo):
 | 8 | Ekspor Excel/PDF (Transaksi, Donatur, Keuangan, Penyaluran, Audit, Transparansi) | File `.xlsx`/`.pdf` asli terunduh |
 | 9 | Penyaluran melebihi saldo kategori | Ditolak sistem |
 | 10 | Pimpinan login | Sidebar hanya modul berizin (RBAC aktif dari `roles.permissions`) |
+| 11 | **Donasi Transfer Manual**: pilih metode di formulir → halaman pembayaran | Rekening lembaga tampil (dari Pengaturan → Identitas → Bank) + tombol hijau **Kirim Bukti Transfer ke WhatsApp Admin** |
+| 12 | Klik tombol WA → lampirkan screenshot bukti → kirim | wa.me ke nomor WA lembaga terbuka dengan pesan konfirmasi terisi otomatis (kode donasi, nama, jumlah, peruntukan) |
+| 13 | Admin → Transaksi → konfirmasi manual pada donasi tersebut | Server (RPC `admin_verify_payment`) menolak bila catatan kosong; bila valid → status **Berhasil**, kuitansi, jurnal dana, dan audit terbit atomik — website (total, transparansi) terupdate otomatis |
+
+## Alur Donasi Transfer Manual (Konfirmasi via WhatsApp)
+
+Untuk lembaga yang belum memakai payment gateway, alur paling sederhana:
+
+1. **Isi identitas lembaga** (Admin → Pengaturan → Identitas): nomor rekening bank pada daftar **Bank** dan **nomor WhatsApp lembaga** — keduanya tampil otomatis di website.
+2. **Donatur** membuka halaman Donasi → memilih **Transfer Bank Manual — Konfirmasi via WhatsApp** (ditampilkan pertama, label PALING MUDAH) → mengisi formulir → halaman instruksi menampilkan seluruh rekening lembaga (tombol salin) + nominal **termasuk 3 digit kode unik** (memudahkan pencocokan).
+3. **Donatur** menekan tombol WhatsApp → pesan konfirmasi terisi otomatis (kode donasi, nama, jumlah) → cukup **melampirkan screenshot bukti transfer** → kirim ke WA admin. Konfirmasi juga tercatat di Outbox.
+4. **Admin** menerima bukti di WhatsApp → membuka panel Admin → **Transaksi** → tombol centang (Konfirmasi manual) → mencocokkan mutasi bank → isi catatan → **Konfirmasi Berhasil**.
+5. **Server** menjalankan RPC `admin_verify_payment` (security definer, guard `has_perm('transactions.verify')`): status transaksi + donasi → `berhasil`, kuitansi terbit (advisory-lock anti-balapan), jurnal keuangan `IN-<fund>` masuk, audit trail tercatat dengan identitas admin — semuanya dalam **satu transaksi database**. Website (total donasi, saldo per dana, transparansi) terupdate otomatis karena dihitung langsung dari tabel.
+
+Catatan integritas: hanya admin berizin `transactions.verify` yang bisa menaikkan status; catatan verifikasi wajib (min. 3 karakter); donasi sudah Berhasil tidak dapat diverifikasi ulang. Batas pembayaran tetap 24 jam — verifikasi sebaiknya dilakukan sebelum kedaluwarsa.
 
 ## Pemecahan Masalah
 
 | Gejala | Penyebab & solusi |
 |--------|-------------------|
+| `ERROR: 42P01 missing FROM-clause entry for table "a"` saat menjalankan schema.sql | Versi schema lama (bug alias di seed permissions, baris ±903). Gunakan **schema.sql terbaru** — bug telah diperbaiki (`a.action` → `m.action`) dan seluruh file telah diuji otomatis (23/23 uji PASS, dijalankan 2× tanpa error). File bersifat idempoten: jalankan ulang **seluruh** file dari awal, aman. |
 | "Supabase gagal terhubung" saat load | URL/anon key salah, atau jaringan memblokir CDN jsdelivr. Periksa `FLMS_SUPABASE_CFG` di localStorage |
 | Uji koneksi gagal: *relation "roles" does not exist* | `schema.sql` belum dijalankan / proyek berbeda |
 | Login admin gagal "Profil admin tidak ditemukan" | User Auth dibuat tanpa profil — jalankan `update profiles … where email=…` (Langkah 3) |
@@ -159,3 +197,26 @@ Sebelum mengisi kredensial (masih mode demo):
 ---
 
 *Filantropi Management System v2.0 — Tahap 2: WhatsApp integration, PDF/Excel lanjutan, migrasi Supabase asli.*
+
+---
+
+## Riwayat Perbaikan Schema
+
+**v2.3** — Alur donasi transfer manual + konfirmasi WhatsApp:
+1. **Tipe metode baru `transfer_manual`** — CHECK constraint `payment_methods.type` diperluas (DO block idempoten untuk instalasi lama) + seed metode aktif pertama di formulir donasi.
+2. **RPC `admin_verify_payment(p_code, p_note)`** — jalur verifikasi manual admin menjadi server-side & atomik: guard `has_perm('transactions.verify')`, catatan wajib min. 3 karakter, kuitansi + jurnal + audit dalam satu transaksi; `REVOKE` dari public, `GRANT` ke authenticated.
+3. Frontend: halaman pembayaran transfer_manual menampilkan rekening lembaga + tombol WA admin (pesan terisi otomatis); verifikasi admin via RPC (fallback ke jalur lama bila skema belum diperbarui).
+
+Telah diverifikasi otomatis: **31/31 uji PASS** (termasuk uji RPC verifikasi: anon ditolak, catatan pendek ditolak, verifikasi berhasil → kuitansi + jurnal infak + audit super_admin, dobel verifikasi ditolak).
+
+**v2.2** — Perbaikan bug 42P01 + penguatan:
+1. **Bug alias seed permissions** (baris ±903): `a.action` → `m.action` — penyebab `ERROR: 42P01 missing FROM-clause entry for table "a"` di SQL Editor.
+2. **pgcrypto opsional** — di PostgreSQL 13+ `gen_random_uuid()` bawaan; kegagalan create extension tidak lagi menghentikan migrasi.
+3. **Peran anon/authenticated/service_role dibuat otomatis bila belum ada** — file dapat dijalankan di Supabase maupun psql lokal.
+4. **`pg_advisory_xact_lock`** pada `demo_finalize_payment` & `webhook_finalize_payment` — mencegah balapan penomoran kuitansi saat donasi bersamaan.
+5. **`webhook_finalize_payment` dikunci**: `REVOKE ... FROM public` + `GRANT ... TO service_role` — hanya Edge Function yang boleh memfinalisasi status pembayaran.
+6. **Seed FAQ idempoten** — deduplikasi + indeks unik `ux_faqs_question` + `on conflict (question)`, aman dijalankan ulang tanpa duplikat.
+
+Telah diverifikasi otomatis (PostgreSQL asli via pgserver, simulasi lengkap Supabase): **23/23 uji PASS** — RLS (anon terblokir, admin diizinkan), trigger profil otomatis, guard demo_mode, finalisasi pembayaran + jurnal zakat, kunci webhook, jumlah seed (29 tabel, 8 peran, 33 izin, 9 metode bayar, 10 kategori, 6 FAQ), dan **idempotensi 2× eksekusi tanpa error**.
+
+**v2.1** — Idempotensi menyeluruh (`if not exists` / `on conflict`), pengaman eksekusi ulang.
