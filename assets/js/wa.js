@@ -191,7 +191,7 @@ const WA = (() => {
   /* Test kirim dari halaman Pengaturan */
   async function testSend() {
     const s = DB.settings();
-    const adm = window.Auth ? Auth.currentAdmin() : null;
+    const adm = (typeof Auth !== 'undefined') ? Auth.currentAdmin() : null;
     const to = (adm && adm.phone) || s.wa || '';
     if (!to) { U.toast('Nomor WhatsApp tujuan belum diatur (Pengaturan → Identitas → WhatsApp).', 'error'); return; }
     const st = status();

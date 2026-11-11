@@ -1,6 +1,11 @@
-# FILANTROPI MANAGEMENT SYSTEM v2.4
+# FILANTROPI MANAGEMENT SYSTEM v2.4.1
 
 Aplikasi web lembaga filantropi (zakat, infak, sedekah, wakaf + program sosial) yang **lengkap dan siap pakai** — dibangun dengan **HTML5, CSS3, dan JavaScript murni** tanpa dependensi eksternal wajib (berjalan offline). Kode ini mengimplementasikan seluruh spesifikasi: Public Website, Admin Dashboard 11+ modul, sistem login & RBAC 8 peran, serta lapisan database dengan aturan integritas keuangan.
+
+**v2.4.1 (Perbaikan sinkronisasi Supabase):**
+- 🛠️ **Peta kolom DEMO ↔ skema SQL (PGRST204 guard)** — sebagian field internal (`audit_logs.user/role`, `notifications.desc`, `programs/news/galleries/campaigns.image`, `faqs.order`, `distributions.proof_file`, dsb.) ternyata tidak sama dengan nama kolom skema v2.3 (`user_name/user_role`, `description`, `image_url`, `order_no`, `proof_url`), sehingga **seluruh tulisan ke Supabase gagal** dengan pesan *"Could not find the 'x' column of 'y' in the schema cache"* — paling terlihat saat **logout admin** (jejak audit `auth.logout` ditolak). Sekarang adapter Supabase memetakan field ↔ kolom secara otomatis saat **push** (upsert) dan **pull** (select), plus **whitelist kolom resmi** per tabel: field internal yang memang bukan kolom (`password_hash`, `data_masked`, `__local`, …) dibuang sebelum dikirim, sehingga upsert tidak pernah lagi gagal karena kolom tidak dikenal. Tidak ada perubahan skema database yang diperlukan — cukup perbarui file JS di hosting.
+- 🪪 **Jejak audit kini mencatat pengguna sebenarnya** — guard `window.Auth` selalu gagal (Auth dideklarasikan `const`, tidak pernah menjadi properti `window`), sehingga SEMUA baris jejak audit sebelumnya tercatat sebagai "Sistem". Diperbaiki di `db.js`, `supabase.js`, dan `wa.js`: baris audit kini memuat nama & peran admin yang melakukan aksi (terverifikasi: login/logout/aksi modul tercatat atas nama admin yang masuk).
+- ✍️ Versi aset cache dinaikkan ke `?v=2.1.2` agar browser pengunjung memuat file JS terbaru dari GitHub Pages.
 
 **v2.0 (Tahap 2):**
 - 📱 **Integrasi WhatsApp** — outbox notifikasi otomatis (kuitansi, instruksi bayar, penyaluran), kirim via API (Edge Function: Fonnte/Wablas/Twilio/Meta Cloud) atau tautan wa.me, tombol share kuitansi di halaman publik, modul **Outbox WhatsApp** di admin.

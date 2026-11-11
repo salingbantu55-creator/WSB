@@ -612,7 +612,8 @@ var DB = (() => {
 
   /* ---------- AUDIT & NOTIFIKASI ---------- */
   function audit(action, entity, entity_id, old_values, new_values, note) {
-    const adm = window.Auth ? Auth.currentAdmin() : null;
+    /* guard typeof: Auth adalah `const` global (tidak menjadi window.Auth) */
+    const adm = (typeof Auth !== 'undefined') ? Auth.currentAdmin() : null;
     return insert('audit_logs', {
       user: adm ? adm.name : 'Sistem', role: adm ? adm.role_label : '-', user_id: adm ? adm.id : null,
       action, entity, entity_id: entity_id || '-',

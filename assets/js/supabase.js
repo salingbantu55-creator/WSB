@@ -72,6 +72,85 @@ const SUPA = (() => {
   cache.__stats = null;
   cache.__public = true;   // true = sesi publik (tanpa admin/donatur)
 
+  /* ============================================================
+     PETA KOLOM (PGRST204 GUARD)
+     Nama field internal (bentuk DEMO localStorage) ≠ nama kolom
+     skema SQL v2.3 pada beberapa tabel. Tanpa pemetaan ini upsert
+     gagal: "Could not find the 'x' column of 'y' in the schema
+     cache" (contoh: audit_logs.user/role vs user_name/user_role).
+     - toServer  : ganti nama field → kolom, BUANG field internal
+                   yang bukan kolom (password_hash, data_masked, dst).
+     - fromServer: kembalikan kolom → field internal saat pull,
+                   agar seluruh UI (x.user, n.desc, p.image, f.order)
+                   tetap berjalan tanpa diubah.
+     ============================================================ */
+  const COL_MAP = {
+    audit_logs: { user: 'user_name', role: 'user_role' },
+    notifications: { desc: 'description' },
+    roles: { desc: 'description' },
+    programs: { desc: 'description', image: 'image_url' },
+    campaigns: { image: 'image_url' },
+    news: { image: 'image_url' },
+    galleries: { image: 'image_url' },
+    faqs: { order: 'order_no' },
+    distributions: { proof_file: 'proof_url' }
+  };
+  /* Daftar kolom resmi per tabel (supabase/schema.sql v2.3) —
+     field apa pun di luar daftar ini TIDAK dikirim ke server. */
+  const COLS = {
+    roles: ['id', 'key', 'name', 'description', 'permissions', 'created_at', 'updated_at'],
+    permissions: ['id', 'code', 'module', 'action'],
+    user_roles: ['id', 'user_id', 'role_key', 'assigned_at'],
+    profiles: ['id', 'email', 'name', 'role_key', 'role_label', 'status', 'last_login', 'created_at', 'updated_at'],
+    organization_structures: ['id', 'name', 'position', 'level', 'created_at', 'updated_at'],
+    programs: ['id', 'name', 'category', 'fund_type', 'target', 'collected', 'short_desc', 'description', 'image_url', 'status', 'featured', 'beneficiary_count', 'created_at', 'updated_at'],
+    campaigns: ['id', 'title', 'slug', 'program_id', 'fund_type', 'target', 'ends_at', 'short_desc', 'image_url', 'status', 'created_at', 'updated_at'],
+    donors: ['id', 'name', 'email', 'phone', 'address', 'auth_user_id', 'verified', 'status', 'notes', 'created_at', 'updated_at'],
+    donations: ['id', 'donation_code', 'donor_id', 'donor_name', 'donor_email', 'donor_phone', 'is_anonymous', 'fund_type', 'program_id', 'campaign_id', 'amount', 'unique_code', 'total_amount', 'payment_method_code', 'donation_type', 'recurring_id', 'message', 'status', 'payment_deadline', 'paid_at', 'created_at', 'updated_at'],
+    payment_transactions: ['id', 'trx_code', 'donation_id', 'donation_code', 'amount', 'method_code', 'provider', 'va_number', 'provider_reference', 'status', 'expires_at', 'paid_at', 'reconciled', 'reconciled_at', 'reconciled_note', 'created_at', 'updated_at'],
+    payment_methods: ['id', 'code', 'name', 'type', 'instructions', 'active', 'created_at', 'updated_at'],
+    recurring_donations: ['id', 'donor_id', 'donor_name', 'email', 'fund_type', 'program_id', 'amount', 'method_code', 'status', 'start_date', 'next_charge', 'last_charge', 'note', 'created_at', 'updated_at'],
+    receipts: ['id', 'receipt_no', 'donation_id', 'trx_code', 'amount', 'fund_type', 'program_name', 'donor_name', 'method', 'issued_at', 'created_at', 'updated_at'],
+    beneficiaries: ['id', 'name', 'nik', 'phone', 'address', 'category', 'needs', 'program_id', 'photo_consent', 'status', 'created_at', 'updated_at'],
+    distributions: ['id', 'dist_number', 'program_id', 'fund_type', 'beneficiary_id', 'amount', 'status', 'description', 'proof_url', 'report_note', 'requested_by', 'verified_by', 'approved_by', 'disbursed_at', 'finished_at', 'created_at', 'updated_at'],
+    financial_accounts: ['id', 'acc_code', 'name', 'type', 'bank_name', 'number', 'balance', 'status', 'created_at', 'updated_at'],
+    financial_categories: ['id', 'code', 'name', 'fund_type', 'direction', 'status', 'created_at', 'updated_at'],
+    financial_transactions: ['id', 'trx_type', 'direction', 'fund_type', 'category_code', 'amount', 'ref_code', 'description', 'trx_date', 'status', 'created_at', 'updated_at'],
+    financial_reports: ['id', 'report_code', 'title', 'period', 'year', 'total_in', 'total_out', 'status', 'note', 'approved_at', 'approved_by', 'created_at', 'updated_at'],
+    news: ['id', 'title', 'category', 'excerpt', 'content', 'author', 'image_url', 'published', 'views', 'created_at', 'updated_at'],
+    galleries: ['id', 'title', 'category', 'image_url', 'consent', 'status', 'created_at', 'updated_at'],
+    testimonials: ['id', 'name', 'role', 'quote', 'approved', 'status', 'photo_consent', 'created_at', 'updated_at'],
+    faqs: ['id', 'question', 'answer', 'order_no', 'status', 'created_at', 'updated_at'],
+    newsletters: ['id', 'title', 'body', 'status', 'sent_at', 'created_at', 'updated_at'],
+    newsletter_subscribers: ['id', 'email', 'name', 'status', 'created_at', 'updated_at'],
+    notifications: ['id', 'title', 'description', 'type', 'target_role', 'read', 'channel', 'wa_status', 'wa_phone', 'wa_message', 'wa_ref', 'wa_link', 'wa_via', 'wa_sent_at', 'wa_error', 'created_at', 'updated_at'],
+    audit_logs: ['id', 'user_id', 'user_name', 'user_role', 'action', 'entity', 'entity_id', 'old_values', 'new_values', 'note', 'ip_address', 'created_at', 'updated_at'],
+    institution_settings: ['id', 'singleton', 'name', 'tagline', 'about', 'history', 'vision', 'mission', 'address', 'phone', 'wa', 'email', 'legal_sk', 'legal_npwp', 'legal_akreditasi', 'maps_embed_url', 'maps_link', 'banks', 'payment_gateway', 'whatsapp_api', 'smtp', 'gemini', 'receipt', 'seo', 'demo_mode', 'created_at', 'updated_at'],
+    zakat_settings: ['id', 'singleton', 'gold_price_gram', 'nisab_gold_gram', 'rate_pct', 'info', 'created_at', 'updated_at']
+  };
+  const mapWarned = {};
+  function toServer(t, row) {
+    const m = COL_MAP[t] || {}, cols = COLS[t], out = {};
+    Object.keys(row).forEach(k => {
+      if (k.charAt(0) === '_') return; /* flag internal cache: __local, __stats, __public, __session */
+      const col = m[k] || k;
+      if (cols && cols.indexOf(col) === -1) {
+        const wk = t + '.' + k;
+        if (!mapWarned[wk]) { mapWarned[wk] = 1; console.warn('[SUPA] field "' + k + '" bukan kolom tabel ' + t + ' — dilewati saat sinkronisasi.'); }
+        return;
+      }
+      out[col] = row[k];
+    });
+    return out;
+  }
+  function fromServer(t, rows) {
+    const m = COL_MAP[t] || {};
+    if (!rows || !rows.length || !Object.keys(m).length) return rows;
+    const rev = {};
+    Object.keys(m).forEach(k => { rev[m[k]] = k; });
+    return rows.map(r => { const o = {}; Object.keys(r).forEach(k => { o[rev[k] || k] = r[k]; }); return o; });
+  }
+
   /* ---------- WRITE-BEHIND (serial) ---------- */
   let chain = Promise.resolve();
   let syncFailShown = false;
@@ -83,8 +162,7 @@ const SUPA = (() => {
     return chain;
   }
   const push = (t, row) => enqueue(async () => {
-    const clean = { ...row };
-    delete clean.__local;
+    const clean = toServer(t, row);
     const { error } = await client.from(t).upsert(clean, { onConflict: 'id' });
     if (error) throw error;
   });
@@ -97,7 +175,7 @@ const SUPA = (() => {
   async function pullOne(t, useView) {
     const { data, error } = await client.from(useView || t).select('*');
     if (error) { console.warn('[SUPA] pull', t, error.message); cache[t] = cache[t] || []; return; }
-    cache[t] = data || [];
+    cache[t] = fromServer(t, data) || [];
   }
   async function pullSingleton(t, key) {
     const { data, error } = await client.from(t).select('*').limit(1);
@@ -453,7 +531,9 @@ const SUPA = (() => {
 
   /* ---------- AUDIT & NOTIFIKASI ---------- */
   function audit(action, entity, entity_id, old_values, new_values, note) {
-    const adm = window.Auth ? Auth.currentAdmin() : null;
+    /* catatan: Auth dideklarasikan dengan `const` (tidak menjadi window.Auth),
+       jadi guard harus typeof — tanpa ini SEMUA baris audit tercatat "Sistem". */
+    const adm = (typeof Auth !== 'undefined') ? Auth.currentAdmin() : null;
     return insert('audit_logs', {
       user: adm ? adm.name : 'Sistem', role: adm ? adm.role_label : '-', user_id: adm ? adm.id : null,
       action, entity, entity_id: entity_id || '-',
