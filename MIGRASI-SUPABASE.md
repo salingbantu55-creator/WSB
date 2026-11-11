@@ -145,9 +145,12 @@ Sebelum mengisi kredensial (masih mode demo):
 ## LANGKAH 8 — Deploy Frontend
 
 1. Push folder ini ke GitHub.
-2. Import ke **Vercel/Netlify** sebagai *static site* (tanpa build step, output = root).
-3. Opsional: tempatkan `supabase/` di luar folder publik agar tidak ikut ter-publish.
-4. HTTPS otomatis; aktifkan juga **backups** harian di Supabase (Database → Backups).
+2. **Opsi A — GitHub Pages (paling mudah, cukup):** Repo → **Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.** Situs tayang di `https://<username>.github.io/<repo>/` — website publik di alamat itu, panel admin di `admin.html`, atau cukup klik **🔒 Masuk / Portal Pengelola** di kanan atas website untuk masuk panel tanpa mengetik alamat admin.
+3. **Opsi B — Vercel/Netlify:** import repo sebagai *static site* (tanpa build step, output = root).
+4. Opsional: tempatkan `supabase/` di luar folder publik agar tidak ikut ter-publish.
+5. HTTPS otomatis; aktifkan juga **backups** harian di Supabase (Database → Backups).
+
+> **Keamanan pada hosting statis:** URL `admin.html` memang bisa ditebak siapa pun — itu wajar dan tetap aman, karena pelindungnya ada di Supabase: RLS di 29 tabel (anonim tidak dapat data admin), RPC sensitif dijaga `has_perm(...)`, dan seluruh secret hanya di Edge Functions. Pengunjung yang membuka `admin.html` tanpa login hanya melihat form masuk kosong.
 
 ---
 
@@ -168,6 +171,8 @@ Sebelum mengisi kredensial (masih mode demo):
 | 11 | **Donasi Transfer Manual**: pilih metode di formulir → halaman pembayaran | Rekening lembaga tampil (dari Pengaturan → Identitas → Bank) + tombol hijau **Kirim Bukti Transfer ke WhatsApp Admin** |
 | 12 | Klik tombol WA → lampirkan screenshot bukti → kirim | wa.me ke nomor WA lembaga terbuka dengan pesan konfirmasi terisi otomatis (kode donasi, nama, jumlah, peruntukan) |
 | 13 | Admin → Transaksi → konfirmasi manual pada donasi tersebut | Server (RPC `admin_verify_payment`) menolak bila catatan kosong; bila valid → status **Berhasil**, kuitansi, jurnal dana, dan audit terbit atomik — website (total, transparansi) terupdate otomatis |
+| 14 | Klik **🔒 Masuk / Portal Pengelola** di website publik → login admin | Modal login terbuka; setelah sukses browser dialihkan ke `admin.html` dan **dashboard langsung terbuka tanpa login ulang** (sesi dibagikan satu origin) |
+| 15 | Login di Portal Pengelola memakai akun DONATUR | Ditolak dengan pesan jelas: *"Akun ini terdaftar sebagai DONATUR. Silakan masuk melalui Area Donatur"* |
 
 ## Alur Donasi Transfer Manual (Konfirmasi via WhatsApp)
 
@@ -186,6 +191,7 @@ Catatan integritas: hanya admin berizin `transactions.verify` yang bisa menaikka
 | Gejala | Penyebab & solusi |
 |--------|-------------------|
 | `ERROR: 42P01 missing FROM-clause entry for table "a"` saat menjalankan schema.sql | Versi schema lama (bug alias di seed permissions, baris ±903). Gunakan **schema.sql terbaru** — bug telah diperbaiki (`a.action` → `m.action`) dan seluruh file telah diuji otomatis (23/23 uji PASS, dijalankan 2× tanpa error). File bersifat idempoten: jalankan ulang **seluruh** file dari awal, aman. |
+| Panel admin/web macet di *"Memuat panel admin…"* + konsol `DB.load is not a function` saat Supabase aktif | Bug adapter versi lama (v2.3 ke bawah) — sudah diperbaiki di **v2.4** (adapter kini menyediakan `load`). Gunakan paket terbaru; bila masih terlihat, **hard refresh (Ctrl+F5)** agar `supabase.js?v=2.1.1` terbaru termuat |
 | "Supabase gagal terhubung" saat load | URL/anon key salah, atau jaringan memblokir CDN jsdelivr. Periksa `FLMS_SUPABASE_CFG` di localStorage |
 | Uji koneksi gagal: *relation "roles" does not exist* | `schema.sql` belum dijalankan / proyek berbeda |
 | Login admin gagal "Profil admin tidak ditemukan" | User Auth dibuat tanpa profil — jalankan `update profiles … where email=…` (Langkah 3) |
@@ -201,6 +207,12 @@ Catatan integritas: hanya admin berizin `transactions.verify` yang bisa menaikka
 ---
 
 ## Riwayat Perbaikan Schema
+
+**v2.4 — Portal Pengelola (hanya frontend, tanpa perubahan schema):**
+1. **Login admin dari website publik** — tombol **🔒 Masuk** (topbar/navbar) + **Portal Pengelola** (menu mobile & footer) membuka modal login di `index.html`; sukses → redirect `admin.html`, sesi dibagikan satu origin sehingga dashboard langsung terbuka.
+2. `supabase.js` → `adminLogin` kini mengenali akun donatur dan menampilkan pesan arahan ke Area Donatur (sebelumnya generik "Profil admin tidak ditemukan").
+3. Panduan deploy **GitHub Pages** ditambahkan (website + admin satu situs) beserta catatan keamanan RLS.
+4. **Perbaikan krusial jalur Supabase** — adapter Supabase tidak mengekspor `load`, sehingga tepat setelah Supabase terhubung halaman macet di *"Memuat panel admin…"/"Memuat Filantropi Management System…* dengan error `Uncaught TypeError: DB.load is not a function` (public.js:57 & admin.js:33). Kini adapter menyediakan `load` (no-op — cache sudah ditarik `pull()` sebelum adapter aktif). Terverifikasi dengan mock Supabase end-to-end: kedua halaman render, login admin → dashboard, tanpa error konsol.
 
 **v2.3** — Alur donasi transfer manual + konfirmasi WhatsApp:
 1. **Tipe metode baru `transfer_manual`** — CHECK constraint `payment_methods.type` diperluas (DO block idempoten untuk instalasi lama) + seed metode aktif pertama di formulir donasi.

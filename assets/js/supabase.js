@@ -468,11 +468,18 @@ const SUPA = (() => {
   const exportAll = () => JSON.parse(JSON.stringify(cache));
   const importAll = () => { U.toast('Impor backup hanya tersedia pada mode DEMO lokal.', 'warn'); return false; };
   const save = () => {}; /* tulisan otomatis di-push */
+  /* Kompatibilitas API dengan DB lokal: load() versi lokal membaca localStorage,
+     sedangkan pada mode Supabase cache sudah ditarik oleh pull() SEBELUM DB dialihkan
+     ke adapter (lihat init). Tanpa ini, PublicApp.init()/AdminApp.init() yang memanggil
+     DB.load() crash dengan "DB.load is not a function" tepat setelah Supabase terhubung.
+     Segarkan manual tetap tersedia via SUPA.pull() / tombol "Muat Ulang Data"
+     (Pengaturan → Supabase). */
+  const load = () => {};
   function resetDemo() { clearCfg(); location.reload(); }
 
   const adapter = {
     /* dasar */
-    all, get, find, one, insert, update, remove, save,
+    load, save, all, get, find, one, insert, update, remove, save,
     settings, zakat, setSettings, setZakat, code, codeMonth,
     programRaised, fundIncome, fundSpent, fundBalance, fundBalances, stats, monthlySeries, fundSeries,
     expireStale, webhookSuccess, manualConfirm, failTransaction,
@@ -490,7 +497,15 @@ const SUPA = (() => {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) return { ok: false, message: 'Login Supabase gagal: ' + error.message };
     const { data: prof, error: perr } = await client.from('profiles').select('*').eq('id', data.user.id).maybeSingle();
-    if (perr || !prof) { await client.auth.signOut(); return { ok: false, message: 'Profil admin tidak ditemukan. Hubungi Super Admin.' }; }
+    if (perr || !prof) {
+      await client.auth.signOut();
+      let msg = 'Profil admin tidak ditemukan. Hubungi Super Admin.';
+      try { /* akun bisa jadi donatur, bukan pengelola */
+        const { data: d } = await client.from('donors').select('id').eq('auth_user_id', data.user.id).maybeSingle();
+        if (d) msg = 'Akun ini terdaftar sebagai DONATUR. Silakan masuk melalui Area Donatur di website publik.';
+      } catch (e) {}
+      return { ok: false, message: msg };
+    }
     if (prof.status !== 'aktif') { await client.auth.signOut(); return { ok: false, message: 'Akun dinonaktifkan. Hubungi Super Admin.' }; }
     await refreshAdminTables();
     localStorage.setItem('FLMS_ADMIN_SESSION', JSON.stringify({ user_id: prof.id, name: prof.name, role_key: prof.role_key, role_label: prof.role_label || '', login_at: NOW(), exp: Date.now() + 8 * 3600000 }));

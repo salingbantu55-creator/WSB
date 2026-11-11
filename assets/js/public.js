@@ -77,7 +77,7 @@ const PublicApp = (() => {
     const s = DB.settings();
     document.getElementById('topbar').innerHTML = `<div class="container">
       <div class="tb-item tb-hide">${U.icon('phone', 13)}&nbsp;${U.esc(s.phone)} &nbsp;·&nbsp; ${U.icon('mail', 13)}&nbsp;${U.esc(s.email)}</div>
-      <div class="tb-item">${U.icon('heart', 13)}&nbsp;Zakat · Infak · Sedekah · Wakaf &nbsp;|&nbsp; <a href="#/area-donatur">Area Donatur</a></div>
+      <div class="tb-item">${U.icon('heart', 13)}&nbsp;Zakat · Infak · Sedekah · Wakaf &nbsp;|&nbsp; <a href="#/area-donatur">Area Donatur</a> &nbsp;|&nbsp; <a href="#" onclick="return PA.openAdminLogin()" title="Masuk panel pengelola lembaga">${U.icon('lock', 13)}&nbsp;Portal Pengelola</a></div>
     </div>`;
   }
   const NAV_LINKS = [['Beranda', '/'], ['Profil', '/profil'], ['Program', '/program'], ['Transparansi', '/transparansi'], ['Berita', '/berita'], ['Kalkulator Zakat', '/kalkulator-zakat'], ['Galeri', '/galeri'], ['FAQ', '/faq']];
@@ -87,6 +87,7 @@ const PublicApp = (() => {
       <a class="brand" href="#/">${U.logoSvg(44)}<span>${U.esc(s.name)}<small>Filantropi Management System</small></span></a>
       <ul class="nav-links">${NAV_LINKS.map(l => `<li><a href="#${l[1]}" data-path="${l[1]}">${l[0]}</a></li>`).join('')}</ul>
       <div class="nav-cta">
+        <a class="btn btn-ghost btn-sm" href="#" onclick="return PA.openAdminLogin()" title="Masuk panel pengelola lembaga">${U.icon('lock', 15)} Masuk</a>
         <a class="btn btn-ghost btn-sm" href="#/area-donatur">${U.icon('user', 15)} Area Donatur</a>
         <a class="btn btn-gold" href="#/donasi">${U.icon('heart', 16)} DONASI SEKARANG</a>
       </div>
@@ -94,7 +95,7 @@ const PublicApp = (() => {
     </div>`;
     document.getElementById('mobile-menu').innerHTML =
       NAV_LINKS.map(l => `<a href="#${l[1]}">${l[0]}</a>`).join('') +
-      `<a href="#/area-donatur">Area Donatur</a><a href="#/donasi" style="color:var(--green-700);font-weight:800">DONASI SEKARANG →</a>`;
+      `<a href="#/area-donatur">Area Donatur</a><a href="#" onclick="return PA.openAdminLogin()">${'\ud83d\udd12'} Portal Pengelola</a><a href="#/donasi" style="color:var(--green-700);font-weight:800">DONASI SEKARANG →</a>`;
     const wa = document.getElementById('wa-float');
     wa.href = `https://wa.me/${(s.wa || '').replace(/\D/g, '')}?text=${encodeURIComponent('Assalamualaikum, saya ingin bertanya tentang donasi ' + s.name)}`;
   }
@@ -118,6 +119,7 @@ const PublicApp = (() => {
             <li><a href="#/galeri">Galeri &amp; Testimoni</a></li>
             <li><a href="#/faq">FAQ</a></li>
             <li><a href="#/area-donatur">Area Donatur</a></li>
+            <li><a href="#" onclick="return PA.openAdminLogin()">Portal Pengelola (Masuk Admin)</a></li>
           </ul>
         </div>
         <div>
@@ -1074,6 +1076,62 @@ const PublicApp = (() => {
   window.PA = {
     dismissDemo() { sessionStorage.setItem('flms_demo_dismiss', '1'); renderBanner(); },
     toggleMenu() { document.getElementById('mobile-menu').classList.toggle('open'); },
+
+    /* ---------- PORTAL PENGELOLA: login admin dari website publik ----------
+       Sesi dibagikan satu origin (localStorage + Supabase Auth), sehingga
+       setelah login di sini, admin.html langsung membuka dashboard. */
+    openAdminLogin() {
+      const mm = document.getElementById('mobile-menu');
+      if (mm) mm.classList.remove('open');
+      const cur = Auth.currentAdmin();
+      if (cur) {
+        U.toast('Anda sudah masuk sebagai ' + cur.name + ' — membuka panel admin…');
+        setTimeout(() => { location.href = 'admin.html'; }, 400);
+        return false;
+      }
+      const supaOn = !!(window.SUPA && SUPA.active());
+      const demoHint = !supaOn && DB.settings().demo_mode ? `
+        <div class="note-box" style="margin-top:14px;font-size:12px;line-height:1.8">
+          <b>MODE DEMO — kredensial uji:</b><br>
+          Super Admin: <b>superadmin@filantropi.id</b> · Admin Donasi: <b>admindonasi@filantropi.id</b> · Auditor: <b>auditor@filantropi.id</b><br>
+          Password semua akun: <b>Admin@123</b><br>
+          <span style="color:#92400e">Pada mode Supabase, gunakan email &amp; password akun yang dibuat di Supabase Auth.</span>
+        </div>` : '';
+      U.modal(U.icon('lock', 18) + ' Portal Pengelola', `
+        <p class="hint" style="margin-top:0">Masuk untuk pengurus/pengelola lembaga. Setelah login, Anda diarahkan ke Panel Admin.</p>
+        <form onsubmit="return PA.adminLogin(event)">
+          <label>Email</label>
+          <input class="input" id="al-email" type="email" required autocomplete="username" placeholder="nama@lembaga.id">
+          <label>Password</label>
+          <input class="input" id="al-pass" type="password" required autocomplete="current-password" placeholder="••••••••">
+          <button class="btn btn-primary btn-block btn-lg" style="margin-top:16px" id="al-btn">${U.icon('lock', 16)} MASUK KE PANEL ADMIN</button>
+        </form>
+        ${demoHint}
+        <p class="hint" style="margin-top:12px;text-align:center">Donatur? Silakan gunakan <a href="#/area-donatur" onclick="U.closeModal()">Area Donatur</a>.</p>`);
+      setTimeout(() => { const el = U.$('#al-email'); if (el) el.focus(); }, 80);
+      return false;
+    },
+    async adminLogin(e) {
+      e.preventDefault();
+      const btn = U.$('#al-btn');
+      const setBtn = (html, dis) => { if (btn) { btn.innerHTML = html; btn.disabled = dis; } };
+      setBtn('Memeriksa…', true);
+      try {
+        const r = await Auth.adminLogin((U.$('#al-email').value || '').trim(), U.$('#al-pass').value);
+        if (!r || !r.ok) {
+          U.toast((r && r.message) || 'Login gagal.', 'error');
+          setBtn(U.icon('lock', 16) + ' MASUK KE PANEL ADMIN', false);
+          return false;
+        }
+        U.toast('Login berhasil — mengalihkan ke Panel Admin…');
+        setTimeout(() => { location.href = 'admin.html'; }, 450);
+      } catch (err) {
+        U.toast('Login gagal: ' + (err && err.message ? err.message : err), 'error');
+        setBtn(U.icon('lock', 16) + ' MASUK KE PANEL ADMIN', false);
+      }
+      return false;
+    },
+
     subscribe() {
       const el = U.$('#nl-email'), msg = U.$('#nl-msg');
       const email = (el.value || '').trim().toLowerCase();
